@@ -1,0 +1,21 @@
+#include <SPI.h>
+
+const int csPin = 10;
+
+void setup() {
+  pinMode(csPin, OUTPUT);
+  digitalWrite(csPin, HIGH); // CS idle high
+
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0)); // 1 MHz
+}
+
+void loop() {
+  for (int value = 1; value <= 255; value++) {
+    digitalWrite(csPin, LOW);
+    SPI.transfer((byte)value);
+    digitalWrite(csPin, HIGH);
+
+    delay(5); // Controls the frequency of the ramp 
+  }
+}
