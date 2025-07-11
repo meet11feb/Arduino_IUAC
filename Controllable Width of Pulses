@@ -1,0 +1,60 @@
+const int outPin = 9;         // External output pin (connect CRO probe here)
+const int ledPin = 13;        // Onboard LED
+bool running = false;         // Loop control
+int dutyPercent = 50;         // Default duty cycle
+unsigned long cycleTime = 1000; // Default total period in milliseconds
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(outPin, OUTPUT);
+  pinMode(ledPin, OUTPUT);
+
+  digitalWrite(outPin, LOW);
+  digitalWrite(ledPin, LOW);
+
+  Serial.println("Enter ON duty cycle % (e.g., 10 for 10% ON, 90% OFF)");
+  Serial.println("Enter 'start' to begin waveform output.");
+  Serial.println("Enter 'stop' to halt.");
+}
+
+void loop() {
+  // Handle serial input
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+
+    if (input.equalsIgnoreCase("start")) {
+      running = true;
+      Serial.println("Waveform generation started.");
+    } else if (input.equalsIgnoreCase("stop")) {
+      running = false;
+      digitalWrite(outPin, LOW);
+      digitalWrite(ledPin, LOW);
+      Serial.println("Waveform generation stopped.");
+    } else {
+      int percent = input.toInt();
+      if (percent >= 1 && percent <= 99) {
+        dutyPercent = percent;
+        Serial.print("Duty cycle set to: ");
+        Serial.print(dutyPercent);
+        Serial.println("%");
+      } else {
+        Serial.println("Please enter a valid duty % between 1 and 99.");
+      }
+    }
+  }
+
+  // Generate square wave if running
+  if (running) {
+    unsigned long onTime = (dutyPercent / 100.0) * cycleTime;
+    unsigned long offTime = cycleTime - onTime;
+
+    digitalWrite(outPin, HIGH);
+    digitalWrite(ledPin, HIGH);
+    delay(onTime);
+
+    digitalWrite(outPin, LOW);
+    digitalWrite(ledPin, LOW);
+    delay(offTime);
+  }
+}
