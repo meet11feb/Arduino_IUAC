@@ -1,0 +1,12 @@
+void setup() {
+  DDRB |= (1 << PB1); // Pin 9 as output (PB1)
+}
+
+void loop() {
+  // Generate 500 ns HIGH pulse
+  PORTB |= (1 << PB1);   // Set pin 9 HIGH
+  __asm__ __volatile__("nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t""nop\n\t"); // ~500 ns delay (7 NOPs)
+  PORTB &= ~(1 << PB1);  // Set pin 9 LOW
+
+  delayMicroseconds(500);  // 500 µs dead time
+}
