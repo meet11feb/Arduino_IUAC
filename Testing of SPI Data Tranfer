@@ -1,0 +1,20 @@
+#include <SPI.h>
+
+const int csPin = 10;
+const byte dataToSend = 100; // Binary: 01100100
+
+void setup() {
+  pinMode(csPin, OUTPUT);
+  digitalWrite(csPin, HIGH);  // CS idle HIGH
+
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0)); // 1 MHz
+}
+
+void loop() {
+  digitalWrite(csPin, LOW);          // Start SPI transfer
+  SPI.transfer(dataToSend);          // Send 8-bit data
+  digitalWrite(csPin, HIGH);         // End SPI transfer
+
+  delay(50); 
+}
