@@ -1,0 +1,40 @@
+#include <SPI.h>
+
+const int csPin = 10;
+const float minV = 4.5;   // Measured minimum output
+const float maxV = 45.0;  // Measured maximum output
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(csPin, OUTPUT);
+  digitalWrite(csPin, HIGH);  // CS idle high
+
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+
+  Serial.println("Enter desired output voltage between 4.5 and 45.0 V:");
+}
+
+void loop() {
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    float desiredVoltage = input.toFloat();
+
+    if (desiredVoltage >= minV && desiredVoltage <= maxV) {
+      // Inverted mapping
+      int value = round(255 - ((desiredVoltage - minV) / (maxV - minV)) * 254);
+
+      digitalWrite(csPin, LOW);
+      SPI.transfer((byte)value);
+      digitalWrite(csPin, HIGH);
+
+      Serial.print("Requested Voltage: ");
+      Serial.print(desiredVoltage, 2);
+      Serial.print(" V → DAC value sent: ");
+      Serial.println(value);
+    } else {
+      Serial.println("Invalid voltage. Enter between 4.5 and 45.0 V.");
+    }
+  }
+}
