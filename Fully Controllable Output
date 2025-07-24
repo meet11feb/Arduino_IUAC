@@ -1,0 +1,235 @@
+#include <SPI.h>
+
+// -----------------------------
+// ✅ HARDWARE PINS
+// -----------------------------
+const int csPin = 10;  // Chip Select for SPI
+
+// -----------------------------
+// ✅ VOLTAGE RANGE
+// -----------------------------
+const float V_MIN = 4.5;
+const float V_MAX = 45.0;
+
+// -----------------------------
+// ✅ DAC STATE
+// -----------------------------
+int targetCode = 255;      // Desired final DAC code
+int currentCode = 255;     // Last DAC code sent to output
+int holdCode = 255;        // DAC code at HOLD
+
+// -----------------------------
+// ✅ FLAGS
+// -----------------------------
+bool ramping = false;
+bool continuing = false;
+bool newAfterHold = false;
+bool waitingCommand = false;
+bool interruptRamp = false;
+bool holdRamp = false;
+
+// -----------------------------
+// ✅ CUSTOM RAMP TIMES
+// -----------------------------
+// 👉 EDIT THESE:
+long INITIAL_RAMP_TIME_MS = 25000;  // Initial ramp time
+long CONT_RAMP_TIME_MS = 15000;    // CONT ramp time
+long NEW_RAMP_TIME_MS = 8000;      // NEW voltage after HOLD ramp time
+
+// ------------------------------------------------
+// ✅ SETUP
+// ------------------------------------------------
+void setup() {
+  Serial.begin(9600);
+  pinMode(csPin, OUTPUT);
+  digitalWrite(csPin, HIGH);  // CS idle high
+
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+
+  Serial.println("✅ READY. Enter desired output voltage (4.5V to 45V):");
+}
+
+// ------------------------------------------------
+// ✅ LOOP
+// ------------------------------------------------
+void loop() {
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+
+    // ✅ FSTOP: stop everything, reset
+    if (input.equalsIgnoreCase("FSTOP")) {
+      interruptRamp = true;
+      ramping = false;
+      continuing = false;
+      newAfterHold = false;
+      holdRamp = false;
+
+      currentCode = 255;
+      outputCode(currentCode);
+
+      waitingCommand = false;
+      Serial.println("🛑 FSTOP: Output reset to 4.5V.");
+      Serial.println("Enter desired output voltage (4.5V to 45V):");
+      return;
+    }
+
+    // ✅ HOLD: pause & store DAC code
+    if (input.equalsIgnoreCase("HOLD")) {
+      holdRamp = true;
+      holdCode = currentCode;
+      Serial.print("⏸️ HOLD: Holding at DAC code ");
+      Serial.println(holdCode);
+      ramping = false;
+      waitingCommand = true;
+      Serial.println("Type CONT to continue to original target,");
+      Serial.println("Or enter a NEW voltage to ramp from HOLD point.");
+      return;
+    }
+
+    // ✅ CONT: ramp from hold to original target
+    if (input.equalsIgnoreCase("CONT")) {
+      if (waitingCommand) {
+        Serial.print("▶️ CONT: Ramping from hold DAC ");
+        Serial.print(holdCode);
+        Serial.print(" to target DAC ");
+        Serial.print(targetCode);
+        Serial.print(" in ");
+        Serial.print(CONT_RAMP_TIME_MS);
+        Serial.println(" ms.");
+        continuing = true;
+        waitingCommand = false;
+      } else {
+        Serial.println("⚠️ CONT only valid after HOLD.");
+      }
+      return;
+    }
+
+    // ✅ NEW voltage while in HOLD: ramp from hold → new voltage
+    if (waitingCommand) {
+      float newVoltage = input.toFloat();
+      if (newVoltage >= V_MIN && newVoltage <= V_MAX) {
+        targetCode = 255 - (int)(((newVoltage - V_MIN) / (V_MAX - V_MIN)) * 255);
+        Serial.print("🔄 NEW: Ramping from hold DAC ");
+        Serial.print(holdCode);
+        Serial.print(" to new target DAC ");
+        Serial.print(targetCode);
+        Serial.print(" in ");
+        Serial.print(NEW_RAMP_TIME_MS);
+        Serial.println(" ms.");
+        newAfterHold = true;
+        waitingCommand = false;
+      } else if (input.equalsIgnoreCase("STOP")) {
+        currentCode = 0;
+        outputCode(currentCode);
+        Serial.println("🛑 STOP: Output off.");
+        waitingCommand = false;
+        Serial.println("Enter desired output voltage (4.5V to 45V):");
+      } else if (input.equalsIgnoreCase("FALL")) {
+        Serial.println("⏬ FALL: Ramping down to 4.5V over 10 sec...");
+        rampBetween(currentCode, 255, 10000);
+        waitingCommand = false;
+        Serial.println("Fall complete. Enter new voltage:");
+      } else {
+        Serial.println("⚠️ Invalid input. Enter NEW voltage, CONT, STOP, FALL, FSTOP:");
+      }
+      return;
+    }
+
+    // ✅ Normal fresh voltage
+    if (!waitingCommand) {
+      float inputVoltage = input.toFloat();
+      if (inputVoltage >= V_MIN && inputVoltage <= V_MAX) {
+        targetCode = 255 - (int)(((inputVoltage - V_MIN) / (V_MAX - V_MIN)) * 255);
+        Serial.print("🚀 Ramping from 4.5V to ");
+        Serial.print(inputVoltage);
+        Serial.print(" V (DAC Code: ");
+        Serial.print(targetCode);
+        Serial.print(") in ");
+        Serial.print(INITIAL_RAMP_TIME_MS);
+        Serial.println(" ms.");
+        ramping = true;
+      } else {
+        Serial.println("⚠️ Invalid input. Enter 4.5–45V:");
+      }
+    }
+  }
+
+  if (ramping) {
+    rampBetween(255, targetCode, INITIAL_RAMP_TIME_MS);
+    currentCode = targetCode;
+    ramping = false;
+    waitingCommand = true;
+    Serial.println("✅ Initial ramp done.");
+    Serial.println("Enter NEW voltage, STOP, FALL, FSTOP, HOLD, CONT:");
+  }
+
+  if (continuing) {
+    rampBetween(holdCode, targetCode, CONT_RAMP_TIME_MS);
+    currentCode = targetCode;
+    continuing = false;
+    waitingCommand = true;
+    Serial.println("✅ CONT ramp done.");
+    Serial.println("Enter NEW voltage, STOP, FALL, FSTOP, HOLD, CONT:");
+  }
+
+  if (newAfterHold) {
+    rampBetween(holdCode, targetCode, NEW_RAMP_TIME_MS);
+    currentCode = targetCode;
+    newAfterHold = false;
+    waitingCommand = true;
+    Serial.println("✅ NEW ramp done.");
+    Serial.println("Enter NEW voltage, STOP, FALL, FSTOP, HOLD, CONT:");
+  }
+}
+
+// ------------------------------------------------
+// ✅ RAMP FUNCTION
+// ------------------------------------------------
+void rampBetween(int startCode, int endCode, long rampTimeMs) {
+  interruptRamp = false;
+  holdRamp = false;
+
+  int steps = abs(endCode - startCode);
+  if (steps <= 0) steps = 1;
+
+  int dir = (endCode > startCode) ? 1 : -1;
+  long stepDelay = rampTimeMs / steps;
+
+  for (int i = startCode; i != endCode; i += dir) {
+    if (Serial.available() > 0) {
+      String cmd = Serial.readStringUntil('\n');
+      cmd.trim();
+      if (cmd.equalsIgnoreCase("FSTOP")) {
+        interruptRamp = true;
+      } else if (cmd.equalsIgnoreCase("HOLD")) {
+        holdRamp = true;
+      }
+    }
+
+    if (interruptRamp) return;
+    if (holdRamp) {
+      currentCode = i;
+      holdCode = i;
+      outputCode(currentCode);
+      return;
+    }
+
+    outputCode(i);
+    currentCode = i;
+    delay(stepDelay);
+  }
+
+  outputCode(endCode);
+  currentCode = endCode;
+}
+
+// ------------------------------------------------
+// ✅ SPI OUTPUT
+// ------------------------------------------------
+void outputCode(int code) {
+  digitalWrite(csPin, LOW);
+  SPI.transfer((byte)code);
+  digitalWrite(csPin, HIGH);
+}
